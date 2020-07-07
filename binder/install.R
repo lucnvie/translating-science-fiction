@@ -1,6 +1,6 @@
 install.packages("renv")
 install.packages("rmarkdown")
-install.pakages("car")
+install.packages("car")
 install.packages("doBy")
 install.packages("generics")
 install.packages("ggplot2")
