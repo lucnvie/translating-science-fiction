@@ -1,3 +1,4 @@
+install.paclages("renv")
 install.packages("rmarkdown")
 install.pakages("car")
 install.packages("doBy")
