@@ -32,5 +32,5 @@ The `renv.lock` file is the only file needed to restore the libraries, but `.Rpr
 <!--see discussion here: https://github.com/rstudio/renv/issues/74-->
 
 ### In the cloud using [Binder](https://mybinder.readthedocs.io/en/latest/)
-![binder/bi[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/NatalieThurlby/translating-science-fiction/master?filepath=scripts%2Fcreative.Rmdlso click the binder button aboveadgeopen RStudio on BinderHub in the cloud, where you can run the analysis.
-
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/NatalieThurlby/translating-science-fiction/master?urlpath=rstudio)
+You can also click the binder badge above, to open RStudio on BinderHub in the cloud, where you can run the analysis.
