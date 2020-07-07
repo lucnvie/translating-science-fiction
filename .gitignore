@@ -1,0 +1,6 @@
+.DS_Store
+articles/*
+notes/
+data/
+.Rproj.user/
+.Rproj.user

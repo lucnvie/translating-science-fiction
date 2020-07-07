@@ -1,0 +1,661 @@
+---
+title: "creative_chapter"
+output: html_document
+---
+# Analysis for Translating science fiction in a CAT tool: post-editing effort and text segmentation 
+
+## Loading
+### Loading packages
+```{r}
+#Packages
+library(reshape2)
+library(irr)
+library(lme4)
+library(lmerTest)
+library(generics)
+library(doBy)
+library(pracma)
+library(ggplot2)
+library(gridExtra)
+library(car)
+library(MuMIn)
+library(testit)
+library(glue)
+```
+
+### Load data for Studies 1 and 2
+#### Study 1
+Comparing cognitive effort (number of pauses - Green et al. 2013; Toral et al. 2018) between T (translation) and P (post-editing) coditions
+```{r}
+# STUDY 1:
+Cdata <- read.csv("../data/CREATIVE.csv") #Concatenated CRITT sg tables
+Cdata <- subset(Cdata, Part != "P01" & Part != "P04" & Part != "P09" & Part != "P10" & Part != "P12" & Part != "P14" & Part != "P11") #excluding errors (e.g. participants who forgot to use Pinyin) + cases where there's evidence of MT use in translation condition
+```
+
+##### Study 2
+<!--Description-->
+```{r}
+# STUDY 2:
+Cdata2 <- read.csv("../data/CREATIVE2.csv") #Concatenated CRITT sg tables
+Cdata2 <- subset(Cdata2, Part != "P06") #excluding participant who split paragraphs
+```
+
+### Descriptive Stats
+#### Mean pauses per character between the P and T conditions
+
+The `TB300` variable represents the number of typing bursts interspersed by 300-millisecond intervals. The number of typing bursts is largely equivalent to the number of pauses except for a probable initial and final pause. We therefore calculate the total number of pauses by adding 2 to the `TB300` variable.
+
+```{r}
+cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") #colour-blind friendly from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette 
+ggplot(Cdata, aes(x=Task,y=TB300+2,color=Task))+geom_boxplot()+geom_jitter()+scale_colour_manual(values=cbPalette)
+```
+
+```{r}
+obs_1 <-nrow(Cdata) #156
+print(glue("Study 1 data has {obs_1} observations."))
+
+mean_pauses_per_char_P <- mean((Cdata[ which(Cdata$Task == "P"),]$TB300+2)/Cdata[ which(Cdata$Task == "P"),]$LenS) #P: 0.4394113 pauses/character
+
+mean_pauses_per_char_T <- mean((Cdata[ which(Cdata$Task == "T"),]$TB300+2)/Cdata[ which(Cdata$Task == "T"),]$LenS) #T: 0.5794642 pauses/character
+
+reduced_pc <- 100*(1-round(mean_pause_per_char_P/mean_pause_per_char_T, digits=3))
+print(glue("There are more pauses per character in translation on average - {reduced_pc}% reduction for P condition")) #24.2%
+```
+
+
+### Data Exploration
+#### Study 1
+```{r}
+cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") #colour-blind friendly from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette 
+ggplot(Cdata, aes(x=LenS,y=TB300+2,color=Task)) + geom_smooth(method="lm",alpha=0.2)+
+geom_point()+scale_colour_manual(values=cbPalette)
+```
+```{r}
+cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") #colour-blind friendly from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette 
+ggplot(Cdata, aes(x=Part,y=TB300+2,fill=Task))+ geom_smooth(method="lm",alpha=0.2)+geom_boxplot()+geom_jitter()+scale_fill_manual(values=cbPalette)
+```
+The average number of pauses is lower for 4 out of 6 participants in the post-editing task.
+
+#### Average pause length per segment
+The `TG300` variable is the total pause time at the 300-millisecond pause threshold. This is divided by `TB300+2` to get the average pause length per segment. <!--TODO: It's currently not, so ask Lucas about that.-->
+```{r}
+mean_pause_len_per_seg_P <- mean(Cdata[ which(Cdata$Task == "P" & Cdata$TG300 >0),]$TG300/(Cdata[ which(Cdata$Task == "P" & Cdata$TG300 >0),]$TB300+1))
+
+mean_pauselen_per_seg_T<-mean(Cdata[ which(Cdata$Task == "T" & Cdata$TG300 >0),]$TG300/(Cdata[ which(Cdata$Task == "T" & Cdata$TG300 >0),]$TB300+1))
+```
+
+### Generalized Linear Mixed-Effects model
+
+```{r}
+# Notes:
+# ------
+# Segment (SegId) is nested within Text (and therefore Task), SegIds have unique Ids per text. 
+# {}
+
+# Total number of pauses: TB300+2
+# Task: Post-editing (P) or Translation (T)
+# scale(LenS): scaled sentence length
+
+# (1|Part): Random effects Participant 
+# (1|SegId): Random effects Segment 
+# Segment and Participant are fully crossed, and assuming correlated.
+
+model1 <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (1|SegId), data=Cdata, family="poisson")
+
+# (1|Part): Random effects Participant 
+# (1|SegId): Random effects Segment ,
+# Assuming Segment and Participant correlated.
+# (0+Task|Part):Assuming Participant not correlated with Task.
+# Task + (1 | Part) + (0 + Task | Part) == Task + (Task||Part)
+model1a <- glmer(TB300+2 ~ Task + scale(LenS) + (0+Task|Part) + (1|Part) + (1|SegId), data=Cdata, family="poisson") # fails to converge
+
+model1b <- glmer(TB300+2 ~ Task + scale(LenS) + (1+Task|Part) + (1|SegId), data=Cdata, family="poisson")
+
+model1c <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId), data=Cdata, family="poisson")
+
+model1d <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId), data=Cdata, family="poisson") 
+
+model1e <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId) + (0+Task|Part), data=Cdata, family="poisson") #fails to converge
+
+# Total number of pauses: TB300+2
+# Task: Post-editing (P) or Translation (T)
+# scale(LenS): scaled sentence length
+# (1+Task|Part): Task and Participant correlated
+# (1+Task|SegId): Task and segment correlated
+# Segment and Participant are fully crossed, and assuming they are not correlated with Task.
+model1f <- glmer(TB300+2 ~ Task + scale(LenS) + (1+Task|Part) + (1+Task|SegId), data=Cdata, family="poisson")
+
+model1g <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (0+Task|Part) + (1+Task|SegId), data=Cdata, family="poisson") #fails to converge
+
+model1h <- glmer(TB300+2 ~ Task + scale(LenS) + (1|SegId) + (0+Task|SegId) + (1+Task|Part), data=Cdata, family="poisson") #fails to converge
+
+
+anova(model1, model1a)
+anova(model1a, model1b)
+anova(model1a, model1f) #1f superior
+
+summary(model1f) #chosen model - more pauses in translation
+
+r.squaredGLMM(model1f) #R2
+```
+
+```{r}
+
+#Overdispersion check
+overdisp_fun <- function(model) {
+    rdf <- df.residual(model)
+    rp <- residuals(model,type="pearson")
+    Pearson.chisq <- sum(rp^2)
+    prat <- Pearson.chisq/rdf
+    pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+    c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+
+overdisp_fun(model1f) #model is overdispersed
+
+Cdata$OLRE <- c(1:nrow(Cdata)) #adding observation-level random effect to absord overdispersion 
+
+model1f.OLRE <- glmer(TB300+2 ~ Task + scale(LenS) + (1+Task|Part) + (1+Task|SegId) + (1|OLRE), data=Cdata, family="poisson")
+isSingular(model1f.OLRE) #model is singular
+
+model1f.OLRE <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (1|OLRE), data=Cdata, family="poisson") #running test on simpler model
+overdisp_fun(model1f.OLRE) #overdispersion corrected
+summary(model1f.OLRE) #Task effect still significant; model1f retained
+
+#%CHANGE
+
+exp(3.30285) #P 27.2
+exp(3.30285+0.35612) #T 38.8
+
+(exp(3.30285+0.35612)-exp(3.30285))/exp(3.30285+0.35612) #30% fewer pauses for P
+
+confint(model1f)
+
+#LOWER BOUND %CHANGE
+
+exp(2.91899650) #P 
+exp(2.91899650+0.03133241) #T
+
+(exp(2.91899650+0.03133241)-exp(2.91899650))/exp(2.91899650+0.03133241) #3% fewer pauses for P
+
+#UPPER BOUND %CHANGE
+
+exp(3.6763008) #P 
+exp(3.6763008+0.6787899) #T
+
+(exp(3.6763008+0.6787899)-exp(3.6763008))/exp(3.6763008+0.6787899)
+#49.3% fewer pauses for P
+
+```
+
+Comparing keystrokes between translation and post-editing
+
+``` {r}
+
+###Descriptive Stats
+
+mean((Cdata[ which(Cdata$Task == "P"),]$Ins+Cdata[ which(Cdata$Task == "P"),]$Del)/Cdata[ which(Cdata$Task == "P"),]$LenS) #2.473231 keystrokes/character
+
+mean((Cdata[ which(Cdata$Task == "T"),]$Ins+Cdata[ which(Cdata$Task == "T"),]$Del)/Cdata[ which(Cdata$Task == "T"),]$LenS) #4.163049 keystrokes/character
+
+#more keystrokes/word in translation on average - 40% reduction for P condition
+
+###glmer model
+
+model2 <- glmer(Ins+Del ~ Task + scale(LenS) + (1|Part) + (1|SegId), data=Cdata, family="poisson")
+
+model2a <- glmer(Ins+Del ~ Task + scale(LenS) + (0+Task|Part) + (1|Part) + (1|SegId), data=Cdata, family="poisson") #Fails to converge
+
+model2b <- glmer(Ins+Del ~ Task + scale(LenS) + (1+Task|Part) + (1|SegId), data=Cdata, family="poisson")
+
+model2c <- glmer(Ins+Del ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId), data=Cdata, family="poisson") #fails to converge
+
+model2d <- glmer(Ins+Del ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId), data=Cdata, family="poisson") #fails to converge
+
+model2e <- glmer(Ins+Del ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId) + (0+Task|Part), data=Cdata, family="poisson") #fails to converge
+
+model2f <- glmer(Ins+Del ~ Task + scale(LenS) + (1+Task|Part) + (1+Task|SegId), data=Cdata, family="poisson")
+
+model2g <- glmer(Ins+Del ~ Task + scale(LenS) + (1|Part) + (0+Task|Part) + (1+Task|SegId), data=Cdata, family="poisson") #faisl to converge
+
+model2h <- glmer(Ins+Del ~ Task + scale(LenS) + (1|SegId) + (0+Task|SegId) + (1+Task|Part), data=Cdata, family="poisson") #fails to converge
+
+anova(model2, model2b)
+anova(model2b, model2f) #2f superior
+
+summary(model2f) #chosen model  - more keystrokes in translation
+
+r.squaredGLMM(model2f) #R2
+
+#Overdispersion
+overdisp_fun(model2f) #model is overdispersed
+
+model2f.OLRE <- glmer(Ins+Del ~ Task + scale(LenS) + (1+Task|Part) + (1+Task|SegId) + (1|OLRE), data=Cdata, family="poisson")
+isSingular(model2f.OLRE) #model is singular
+
+model2f.OLRE <- glmer(Ins+Del ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (1|OLRE), data=Cdata, family="poisson") #running test on simpler model
+overdisp_fun(model2f.OLRE) #overdispersion corrected 
+summary(model2f.OLRE) #Task effect still significant; model2f retained
+
+#%CHANGE
+
+exp(4.98902) #P 
+exp(4.98902+0.66531) #T 
+
+(exp(4.98902+0.66531)-exp(4.98902))/exp(4.98902+0.66531) #48.5% fewer keystrokes for T
+
+confint(model2f)
+
+#LOWER BOUND %CHANGE
+
+exp(4.5219869) #P 
+exp(4.5219869+0.2917585) #T
+
+(exp(4.5219869+0.2917585)-exp(4.5219869))/exp(4.5219869+0.2917585) #25.3% fewer keystrokes for P
+
+#UPPER BOUND %CHANGE
+
+exp(5.4458643) #P
+exp(5.4458643+1.0501244) #T
+
+(exp(5.4458643+1.0501244)-exp(5.4458643))/exp(5.4458643+1.0501244)
+#65% fewer keystrokes for P
+
+```
+Comparing temporal effort between translation and post-editing
+```{r}
+###Descriptive stats
+
+mean(Cdata[ which(Cdata$FDur >0 & Cdata$Task == "P"),]$FDur/Cdata[ which(Cdata$FDur >0 & Cdata$Task == "P"),]$LenS) #2.7s/character
+
+mean(Cdata[ which(Cdata$FDur >0 & Cdata$Task == "T"),]$FDur/Cdata[ which(Cdata$FDur >0 & Cdata$Task == "T"),]$LenS) #3.7s/character
+
+#Time per word longer in Translation
+
+### lmer model
+
+model3 <- lmer(log(FDur) ~ Task + scale(LenS) + (1|Part) + (1|SegId), data=Cdata[ which(Cdata$FDur >0),])
+
+model3a <- lmer(log(FDur) ~ Task + scale(LenS) + (0+Task|Part) + (1|Part) + (1|SegId), data=Cdata[ which(Cdata$FDur >0),]) #fails to converge
+
+model3b <- lmer(log(FDur) ~ Task + scale(LenS) + (1+Task|Part) + (1|SegId), data=Cdata[ which(Cdata$FDur >0),])
+
+model3c <- lmer(log(FDur) ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId), data=Cdata[ which(Cdata$FDur >0),]) #fails to converge
+
+model3d <- lmer(log(FDur) ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId), data=Cdata[ which(Cdata$FDur >0),]) #fails to converge
+
+model3e <- lmer(log(FDur) ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId) + (0+Task|Part), data=Cdata[ which(Cdata$FDur >0),]) #fails to converge
+
+model3f <- lmer(log(FDur) ~ Task + scale(LenS) + (1+Task|Part) + (1+Task|SegId), data=Cdata[ which(Cdata$FDur >0),])
+
+model3g <- lmer(log(FDur) ~ Task + scale(LenS) + (1|Part) + (0+Task|Part) + (1+Task|SegId), data=Cdata[ which(Cdata$FDur >0),])
+
+model3h <- lmer(log(FDur) ~ Task + scale(LenS) + (1|SegId) + (0+Task|SegId) + (1+Task|Part), data=Cdata[ which(Cdata$FDur >0),]) #fails to converge
+
+anova(model3, model3b)
+anova(model3b, model3f)
+anova(model3f, model3g) #model3f superior
+
+summary(model3f) #chosen model - no difference between translation and post-editing
+
+###model criticism
+
+# heterodasticity
+plot(fitted(model3), resid(model3)) #looks fine
+
+# normality
+qqp(resid(model3)) #looks fine
+
+r.squaredGLMM(model3)
+
+```
+#STUDY 2
+
+Comparing cog effort (number of pauses - Green et al. 2013; Toral et al. 2018) between Sentence and Paragraph segmentation
+
+``` {r}
+
+###Descriptive Stats
+
+mean((Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$TB300+2)/Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$LenS) #0.3480152 pauses/character
+
+mean((Cdata2[ which(Cdata2$Segmentation == "sentence"),]$TB300+2)/Cdata2[ which(Cdata2$Segmentation == "sentence"),]$LenS) #0.4222854 pauses/character
+
+mean(Cdata2[ which(Cdata2$Segmentation == "paragraph" & Cdata2$TG300 > 0),]$TG300/(Cdata2[ which(Cdata2$Segmentation == "paragraph" & Cdata2$TG300 > 0),]$TB300+1)) #5.5s per pause 
+
+mean(Cdata2[ which(Cdata2$Segmentation == "sentence" & Cdata2$TG300 > 0),]$TG300/(Cdata2[ which(Cdata2$Segmentation == "sentence" & Cdata2$TG300 > 0),]$TB300+1)) # 4.2s per pause
+
+#more pauses per source character in sentence condition on average - 18% reduction in number of pauses for paragraoh condition compared to sentence condition
+
+
+###glmer model
+
+model4 <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg), data=Cdata2, family="poisson")
+
+model4a <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (0+Segmentation|Part) + (1|Part) + (1|TTseg), data=Cdata2, family="poisson") 
+
+model4b <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1+Segmentation|Part) + (1|TTseg), data=Cdata2, family="poisson")
+
+model4c <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
+
+model4d <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
+
+model4e <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg) + (0+Segmentation|Part), data=Cdata2, family="poisson") #fails to converge
+
+model4f <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1+Segmentation|Part) + (1+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
+
+model4g <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|Part) + (0+Segmentation|Part) + (1+Segmentation|TTseg), data=Cdata2, family="poisson") 
+
+model4h <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|TTseg) + (0+Segmentation|TTseg) + (1+Segmentation|Part), data=Cdata2, family="poisson") #fails to converge
+
+
+anova(model4, model4a)
+anova(model4a, model4b)
+anova(model4a, model4g) #a superior
+
+summary(model4a) #more pauses in sentence condition 
+
+### glmer model without random effect for items
+
+Cdata2$Text = as.factor(Cdata2$Text)
+contrasts(Cdata2$Text) = contr.sum(2)
+
+model9 <- glmer(TB300+2 ~ Segmentation + scale(LenS) + Text + (1|Part), data=Cdata2, family="poisson")
+
+model9a <- glmer(TB300+2 ~ Segmentation + scale(LenS)  + Text + (0+Segmentation|Part) + (1|Part), data=Cdata2, family="poisson") #fails to converge
+
+model9b <- glmer(TB300+2 ~ Segmentation + scale(LenS) + Text + (1+Segmentation|Part), data=Cdata2, family="poisson")
+
+anova(model9, model9b) #model 9b superior
+
+summary(model9b) #more pauses in sentence condition 
+
+r.squaredGLMM(model9b) #R2
+
+#Overdispersion
+
+overdisp_fun(model9b) #model overdispersed
+Cdata2$OLRE <- c(1:nrow(Cdata2)) #adding observation-level random effect to absord overdispersion 
+
+model9b.OLRE <- glmer(TB300+2 ~ Segmentation + scale(LenS) + Text + (1+Segmentation|Part) + (1|OLRE), data=Cdata2, family="poisson")
+isSingular(model9b.OLRE) #FALSE - not singular
+
+summary(model9b.OLRE) #Segmentation still significant 
+overdisp_fun(model9b.OLRE) #overdispersion corrected
+
+#%CHANGE
+
+exp(2.97011) #para 
+exp(2.97011+0.51973) #sent
+
+(exp(2.97011+0.51973)-exp(2.97011))/exp(2.97011+0.51973) #40% fewer pauses for paragraph segmentation
+
+confint(model9b)
+
+#LOWER BOUND %CHANGE
+
+exp(2.6461603) #para 
+exp(2.6461603+0.2000460) #sent
+
+(exp(2.6461603+0.2000460)-exp(2.6461603))/exp(2.6461603+0.2000460) #18% fewer pauses for paragraph segmentation
+
+#UPPER BOUND %CHANGE
+
+exp(3.2921073) #para 
+exp(3.2921073+0.8411030) #sent
+
+(exp(3.2921073+0.8411030)-exp(3.2921073))/exp(3.2921073+0.8411030)
+#56.9% fewer pauses for paragraph segmentation
+
+```
+
+Comparing keystrokes between translation and post-editing
+```{r}
+###Descriptive Stats
+
+mean((Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$Ins+Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$Del)/Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$LenS) #1.758849 keystrokes/character
+
+mean((Cdata2[ which(Cdata2$Segmentation == "sentence"),]$Ins+Cdata2[ which(Cdata2$Segmentation == "sentence"),]$Del)/Cdata2[ which(Cdata2$Segmentation == "sentence"),]$LenS) #2.401009 keystrokes/character
+
+#more keystrokes per source word on average in sentence condition - 26.7% reduction in the number of keystrokes for paragraph condition
+
+###glmer model
+
+model5 <- glmer(Ins+Del ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg), data=Cdata2, family="poisson")
+
+model5a <- glmer(Ins+Del ~ Segmentation + scale(LenS) + (0+Segmentation|Part) + (1|Part) + (1|TTseg), data=Cdata2, family="poisson") #fails to converge
+
+model5b <- glmer(Ins+Del ~ Segmentation + scale(LenS) + (1+Segmentation|Part) + (1|TTseg), data=Cdata2, family="poisson")
+
+model5c <- glmer(Ins+Del ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
+
+model5d <- glmer(Ins+Del ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
+
+model5e <- glmer(Ins+Del ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg) + (0+Segmentation|Part), data=Cdata2, family="poisson") #fails to converge
+
+model5f <- glmer(Ins+Del ~ Segmentation + scale(LenS) + (1+Segmentation|Part) + (1+Segmentation|TTseg), data=Cdata2, family="poisson") 
+
+model5g <- glmer(Ins+Del ~ Segmentation + scale(LenS) + (1|Part) + (0+Segmentation|Part) + (1+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
+
+model5h <- glmer(Ins+Del ~ Segmentation + scale(LenS) + (1|TTseg) + (0+Segmentation|TTseg) + (1+Segmentation|Part), data=Cdata2, family="poisson") 
+
+anova(model5, model5b)
+anova(model5b, model5f)
+anova(model5b,model5h) #5b superior
+
+summary(model5b) #more keystrokes in sentence condition
+
+### glmer model without random effect for items
+
+model8 <- glmer(Ins+Del ~ Segmentation + scale(LenS) + Text + (1|Part), data=Cdata2, family="poisson")
+
+model8a <- glmer(Ins+Del ~ Segmentation + scale(LenS)  + Text + (0+Segmentation|Part) + (1|Part), data=Cdata2, family="poisson") #fails to converge
+
+model8b <- glmer(Ins+Del ~ Segmentation + scale(LenS) + Text + (1+Segmentation|Part), data=Cdata2, family="poisson")
+
+anova(model8, model8b) #model 8b superior
+
+
+summary(model8b) #more keystrokes in sentence condition
+
+r.squaredGLMM(model8b) #R2
+
+#Overdispersion
+
+overdisp_fun(model8b) #model overdispersed
+
+model8b.OLRE <- glmer(Ins+Del ~ Segmentation + scale(LenS) + Text + (1+Segmentation|Part) +(1|OLRE), data=Cdata2, family="poisson")
+isSingular(model8b.OLRE) #singular
+
+model8b.OLRE <- glmer(Ins+Del ~ Segmentation + scale(LenS) + Text + (0+Segmentation|Part) + (1|Part) + (1|OLRE), data=Cdata2, family="poisson")
+
+overdisp_fun(model8b.OLRE) #overdispersion corrected
+
+summary(model8b.OLRE) #Segmentation significant
+
+#%CHANGE
+
+exp(4.780328) #para 
+exp(4.780328+0.430209) #sent
+
+(exp(4.780328+0.430209)-exp(4.780328))/exp(4.780328+0.430209) #34.9% fewer keystrokes for paragraph segmentation
+
+#####INTERPRETATION####
+#Changing from paragraph to sentences multiplies the number of expected keystrokes by exp0.430209), which means that in the sentence condition the number of keystrokes is exp(0.430209)*exp(4.780328) or exp(4.780328+0.430209) [183.1924], while in the paragraph condition, the number is exp(4.780328) [119.1434], a reduction of 34.9% for paragraphs
+
+
+confint(model8b)
+
+#LOWER BOUND %CHANGE
+
+exp(4.44488946) #para 
+exp(4.44488946+0.11706831) #sent
+
+(exp(4.44488946+0.11706831)-exp(4.44488946))/exp(4.44488946+0.11706831) #11% fewer keystrokes for paragraph segmentation
+
+#UPPER BOUND %CHANGE
+
+exp(5.1154987) #para 
+exp(5.1154987+0.7435313) #sent
+
+(exp(5.1154987+0.7435313)-exp(5.1154987))/exp(5.1154987+0.7435313)
+#52% fewer keystrokes for paragraph segmentation
+
+
+```
+Comparing temporal effort between paragraph and sentence segmentation
+
+```{r}
+###Descriptive stats
+
+mean(Cdata2[ which(Cdata2$Segmentation == "sentence" & Cdata2$FDur > 0),]$FDur/Cdata2[ which(Cdata2$Segmentation == "sentence" & Cdata2$FDur > 0),]$LenS) #3s/character
+
+mean(Cdata2[ which(Cdata2$Segmentation == "paragraph"& Cdata2$FDur > 0),]$FDur/Cdata2[ which(Cdata2$Segmentation == "paragraph"& Cdata2$FDur > 0),]$LenS) #2.3s/character
+
+#Time per character longer on average in sentence segmentation - 23.7% reduction for paragraph segmentation
+
+### lmer model 
+
+model6 <- lmer(log(FDur) ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg), data=Cdata2[ which(Cdata2$FDur >0),])
+
+model6a <- lmer(log(FDur) ~ Segmentation + scale(LenS) + (0+Segmentation|Part) + (1|Part) + (1|TTseg), data=Cdata2[ which(Cdata2$FDur >0),]) #fails to converge
+
+model6b <- lmer(log(FDur) ~ Segmentation + scale(LenS) + (1+Segmentation|Part) + (1|TTseg), data=Cdata2[ which(Cdata2$FDur >0),]) #fails to converge
+
+model6c <- lmer(log(FDur) ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg), data=Cdata2[ which(Cdata2$FDur >0),]) #fails to converge
+
+model6d <- lmer(log(FDur) ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg), data=Cdata2[ which(Cdata2$FDur >0),]) #fails to converge
+
+model6e <- lmer(log(FDur) ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg) + (0+Segmentation|Part), data=Cdata2[ which(Cdata2$FDur >0),]) #fails to converge
+
+model6f <- lmer(log(FDur) ~ Segmentation + scale(LenS) + (1+Segmentation|Part) + (1+Segmentation|TTseg), data=Cdata2[ which(Cdata2$FDur >0),]) #fails to converge
+
+model6g <- lmer(log(FDur) ~ Segmentation + scale(LenS) + (1|Part) + (0+Segmentation|Part) + (1+Segmentation|TTseg), data=Cdata2[ which(Cdata2$FDur >0),]) #fails to converge
+
+model6h <- lmer(log(FDur) ~ Segmentation + scale(LenS) + (1|TTseg) + (0+Segmentation|TTseg) + (1+Segmentation|Part), data=Cdata2[ which(Cdata2$FDur >0),]) #fails to converge 
+
+
+summary(model6) #Sentence segmentation longer
+
+###model criticism
+
+# heterodasticity
+plot(fitted(model6), resid(model6))
+
+# normality
+qqp(resid(model6))
+
+Cdata2_sub <- Cdata2[ which(Cdata2$FDur >0),]
+Cdata2_no <- Cdata2_sub[abs(scale(resid(model6))) < 2.5,]
+(nrow(Cdata2_sub) - nrow(Cdata2_no))/nrow(Cdata2_sub) #2 (approx. 1%) data points removed
+
+model6_no <- lmer(log(FDur) ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg), data=Cdata2_no)
+summary(model6_no) #Segmentation effect still significant
+
+qqp(resid(model6_no))
+
+### lmer model without random effect for items
+
+model7 <- lmer(log(FDur) ~ Segmentation + scale(LenS) + Text + (1|Part), data=Cdata2[ which(Cdata2$FDur >0),])
+
+model7a <- lmer(log(FDur) ~ Segmentation + scale(LenS)  + Text + (0+Segmentation|Part) + (1|Part), data=Cdata2[ which(Cdata2$FDur >0),]) 
+
+model7b <- lmer(log(FDur) ~ Segmentation + scale(LenS) + Text + (1+Segmentation|Part), data=Cdata2[ which(Cdata2$FDur >0),]) #fails to converge
+
+anova(model7, model7a) #7 superior
+
+summary(model7) #Sentence segmentation longer
+
+r.squaredGLMM(model7) #R2
+cor(log(Cdata2[ which(Cdata2$FDur >0),]$FDur), fitted(model7))^2 #R2
+
+#%CHANGE
+
+exp(11.17112) #para 
+exp(11.17112+0.69744) #sent
+
+(exp(11.17112+0.69744)-exp(11.17112))/exp(11.17112+0.69744)  #50% less time for paragraph segmentation
+
+confint(model7)
+
+#LOWER BOUND %CHANGE
+
+exp(10.7505821) #para 
+exp(10.7505821+0.3224180) #sent
+
+(exp(10.7505821+0.3224180)-exp(10.7505821))/exp(10.7505821+0.3224180) #27.5% less time for paragraph segmentation
+
+#UPPER BOUND %CHANGE
+
+exp(11.5922846) #para 
+exp(11.5922846+1.0730900) #sent
+
+(exp(11.5922846+1.0730900)-exp(11.5922846))/exp(11.5922846+1.0730900)
+#65.8% less time for paragraph segmentation
+
+###model criticism
+
+# heterodasticity
+plot(fitted(model7), resid(model7)) #looks fine
+
+# normality
+qqp(resid(model7))
+
+Cdata2_sub <- Cdata2[ which(Cdata2$FDur >0),]
+Cdata2_no7 <- Cdata2_sub[abs(scale(resid(model7))) < 2.5,]
+(nrow(Cdata2_sub) - nrow(Cdata2_no))/nrow(Cdata2_sub) #2 (approx. 1%) data points removed
+
+model7_no <- lmer(log(FDur) ~ Segmentation + scale(LenS) + as.factor(Text)+ (1|Part), data=Cdata2_no7)
+summary(model7_no) #Segmentation effect still significant
+
+qqp(resid(model7_no))
+
+confint(model7_no)
+
+#LOWER BOUND %CHANGE
+
+exp(10.9500903) #para 
+exp(10.9500903+0.2451603) #sent
+
+(exp(10.9500903+0.2451603)-exp(10.9500903))/exp(10.9500903+0.2451603) #21.7% less time for paragraph segmentation
+
+#UPPER BOUND %CHANGE
+
+exp(11.7011703) #para 
+exp(11.7011703+0.9117928) #sent
+
+(exp(11.7011703+0.9117928)-exp(11.7011703))/exp(11.7011703+0.9117928)
+#59.8% less time for paragraph segmentation
+
+
+```
+
+## Reproducibility
+
+### Testing reproducibility
+The following code snippets check that the input data, and results are the same as ours to 7 significant figures.
+
+```{r}
+sig_fig <- 7
+
+# Check descriptive stats:
+m_pc_P <- 0.4394113
+testit::assert(glue("Mean pauses/character for post-editing is {m_pc_P}"), round(mean_pause_per_char_P, digits=sig_fig) == m_pc_P)
+
+m_pc_T <- 0.5794642
+testit::assert(glue("Mean pauses/character for translation is {m_pc_T}"), round(mean_pause_per_char_T, digits=sig_fig) == m_pc_T)
+```
+
+### Snapshot R library environment
+```{r}
+renv::clean()
+renv::snapshot()
+```
+
+### Software citations
+```{r}
+knitr::write_bib(c(.packages(), "bookdown"), "../software-citations.bib")
+```
+
+
+
