@@ -91,7 +91,6 @@ mean_pauselen_per_seg_T<-mean(Cdata[ which(Cdata$Task == "T" & Cdata$TG300 >0),]
 # Notes:
 # ------
 # Segment (SegId) is nested within Text (and therefore Task), SegIds have unique Ids per text. 
-# {}
 
 # Total number of pauses: TB300+2
 # Task: Post-editing (P) or Translation (T)
