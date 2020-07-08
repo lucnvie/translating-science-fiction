@@ -6,8 +6,9 @@ output: html_document
 
 ## Loading
 ### Loading packages
-```{r}
+```{r message=FALSE, warning=FALSE}
 #Packages
+
 library(reshape2)
 library(irr)
 library(lme4)
