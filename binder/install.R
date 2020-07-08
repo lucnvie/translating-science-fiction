@@ -1,4 +1,4 @@
-install.packages("renv")
+install.packages("renv",version="0.11.0")
 install.packages("rmarkdown")
 install.packages("car")
 install.packages("doBy")
