@@ -4,11 +4,8 @@ output: html_document
 ---
 # Analysis for Translating science fiction in a CAT tool: post-editing effort and text segmentation 
 
-## Loading
-### Loading packages
+## Loading Packages
 ```{r message=FALSE, warning=FALSE}
-#Packages
-
 library(reshape2)
 library(irr)
 library(lme4)
@@ -21,145 +18,337 @@ library(gridExtra)
 library(car)
 library(MuMIn)
 library(testit)
+library(tidyverse)
 library(glue)
+library(ggeffects)
 ```
 
-### Load data for Studies 1 and 2
-#### Study 1
+## Study 1
 Comparing cognitive effort (number of pauses - Green et al. 2013; Toral et al. 2018) between T (translation) and P (post-editing) coditions
+
+### Load data 
+Reads in and cleans data from the concatenated CRITT sg tables.
 ```{r}
-# STUDY 1:
 Cdata <- read.csv("../data/CREATIVE.csv") #Concatenated CRITT sg tables
-Cdata <- subset(Cdata, Part != "P01" & Part != "P04" & Part != "P09" & Part != "P10" & Part != "P12" & Part != "P14" & Part != "P11") #excluding errors (e.g. participants who forgot to use Pinyin) + cases where there's evidence of MT use in translation condition
+
+# Excluding errors (e.g. participants who forgot to use Pinyin) + cases where there's evidence of MT use in translation condition
+Cdata <- subset(Cdata, Part != "P01" & Part != "P04" & Part != "P09" & Part != "P10" & Part != "P12" & Part != "P14" & Part != "P11") 
+
+used_columns<-c("Part","SegId","Text","Task","TB300","LenS")
+Cdata<-Cdata[used_columns]
+
+#Fix data type for categorical columns:
+Cdata$Part <- as.factor(Cdata$Part)
+Cdata$SegId <- as.factor(Cdata$SegId)
+Cdata$Text <- as.factor(Cdata$Text)
+Cdata$Task <- as.factor(Cdata$Task)
+
+summary(Cdata)
+
+Cdata$OLRE <- c(1:nrow(Cdata)) #adding observation-level random effect that may be used to absorb overdispersion 
 ```
 
-##### Study 2
-<!--Description-->
-```{r}
-# STUDY 2:
-Cdata2 <- read.csv("../data/CREATIVE2.csv") #Concatenated CRITT sg tables
-Cdata2 <- subset(Cdata2, Part != "P06") #excluding participant who split paragraphs
+### Data Structure
+This is a unit digram of the structure of the data (not the structure of the model).
+
+```{r, echo=FALSE}
+DiagrammeR::grViz("digraph {
+  
+graph[layout = dot]
+
+node[shape=rectangle]
+
+task1 [label='Post-editing']
+task2 [label='Machine Translated']
+
+text1 [label='Text 1']
+text2 [label='Text 2']
+
+segment1 [label='Segment 1']
+segment2 [label='Segment 2']
+segment3 [label='Segment 3']
+segment4 [label='Segment 4']
+segment5 [label='Segment 5']
+segment6 [label='Segment 6']
+segment7 [label='Segment 7']
+segment8 [label='Segment 8']
+
+participant1 [label = 'Participant 1']
+participant2 [label = 'Participant 2']
+participant3 [label = 'Participant 3']
+
+task1->segment1
+task1->segment2
+task1->segment3
+task1->segment4
+task1->segment5
+task1->segment6
+task1->segment7
+task1->segment8
+
+task2->segment1
+task2->segment2
+task2->segment3
+task2->segment4
+task2->segment5
+task2->segment6
+task2->segment7
+task2->segment8
+
+text1->segment1
+text1->segment2
+text1->segment3
+text1->segment4
+
+text2->segment5
+text2->segment6
+text2->segment7
+text2->segment8
+
+segment1 -> participant1
+segment2 -> participant1
+segment3 -> participant1
+segment4 -> participant1
+segment5 -> participant1
+segment6 -> participant1
+segment7 -> participant1
+segment8 -> participant1
+
+segment1 -> participant2
+segment2 -> participant2
+segment3 -> participant2
+segment4 -> participant2
+segment5 -> participant2
+segment6 -> participant2
+segment7 -> participant2
+segment8 -> participant2
+
+segment1 -> participant3
+segment2 -> participant3
+segment3 -> participant3
+segment4 -> participant3
+segment5 -> participant3
+segment6 -> participant3
+segment7 -> participant3
+segment8 -> participant3
+
+}")
 ```
 
-### Descriptive Stats
+### Renaming and scaling variables
 #### Mean pauses per character between the P and T conditions
-
 The `TB300` variable represents the number of typing bursts interspersed by 300-millisecond intervals. The number of typing bursts is largely equivalent to the number of pauses except for a probable initial and final pause. We therefore calculate the total number of pauses by adding 2 to the `TB300` variable.
-
 ```{r}
-cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") #colour-blind friendly from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette 
-ggplot(Cdata, aes(x=Task,y=TB300+2,color=Task))+geom_boxplot()+geom_jitter()+scale_colour_manual(values=cbPalette)
+Cdata$Pauses <- Cdata$TB300 + 2
 ```
 
+We scale the sentence length `LenS`, to get it on a similar scale to the other variables (this aids computation).
+```{r}
+Cdata$scaledLen <- as.vector(scale(Cdata$LenS))
+```
+
+### Exploratory Data Analysis
 ```{r}
 obs_1 <-nrow(Cdata) #156
 print(glue("Study 1 data has {obs_1} observations."))
-
-mean_pauses_per_char_P <- mean((Cdata[ which(Cdata$Task == "P"),]$TB300+2)/Cdata[ which(Cdata$Task == "P"),]$LenS) #P: 0.4394113 pauses/character
-
-mean_pauses_per_char_T <- mean((Cdata[ which(Cdata$Task == "T"),]$TB300+2)/Cdata[ which(Cdata$Task == "T"),]$LenS) #T: 0.5794642 pauses/character
-
-reduced_pc <- 100*(1-round(mean_pause_per_char_P/mean_pause_per_char_T, digits=3))
-print(glue("There are more pauses per character in translation on average - {reduced_pc}% reduction for P condition")) #24.2%
 ```
 
-
-### Data Exploration
-#### Study 1
+#### Pauses
 ```{r}
 cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") #colour-blind friendly from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette 
-ggplot(Cdata, aes(x=LenS,y=TB300+2,color=Task)) + geom_smooth(method="lm",alpha=0.2)+
-geom_point()+scale_colour_manual(values=cbPalette)
+ggplot(Cdata, aes(x=Task,y=Pauses,color=Task))+geom_boxplot()+geom_jitter()+scale_colour_manual(values=cbPalette)
 ```
+
 ```{r}
-cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") #colour-blind friendly from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette 
-ggplot(Cdata, aes(x=Part,y=TB300+2,fill=Task))+ geom_smooth(method="lm",alpha=0.2)+geom_boxplot()+geom_jitter()+scale_fill_manual(values=cbPalette)
+mean_pauses_per_char_P <- mean((Cdata[ which(Cdata$Task == "P"),]$Pauses)/Cdata[ which(Cdata$Task == "P"),]$LenS) #P: 0.4394113 pauses/character
+
+mean_pauses_per_char_T <- mean((Cdata[ which(Cdata$Task == "T"),]$Pauses)/Cdata[ which(Cdata$Task == "T"),]$LenS) #T: 0.5794642 pauses/character
+
+reduced_pc <- 100*(1-round(mean_pauses_per_char_P/mean_pauses_per_char_T, digits=3))
+print(glue("There are more pauses per character in translation on average - {reduced_pc}% reduction for the `P` condition")) #24.2%
 ```
-The average number of pauses is lower for 4 out of 6 participants in the post-editing task.
+
+```{r}
+ggplot(Cdata, aes(x=LenS, y=Pauses,color=Task,shape=Part)) + geom_point() +geom_smooth(aes(group=Task),formula='y~x',method='lm',size=0.5, alpha=0.2)+scale_colour_manual(values=cbPalette)
+```
+
+```{r}
+ggplot(Cdata, aes(x=Part,y=Pauses,fill=Task)) + geom_boxplot() + geom_jitter(alpha=0.25) + scale_fill_manual(values=cbPalette)
+```
+The average number of pauses is lower for 4 out of 6 participants in the post-editing (`P`) task.
 
 #### Average pause length per segment
-The `TG300` variable is the total pause time at the 300-millisecond pause threshold. This is divided by `TB300+2` to get the average pause length per segment. <!--TODO: It's currently not, so ask Lucas about that.-->
+The `TG300` variable is the total pause time at the 300-millisecond pause threshold. This is divided by Pauses (`TB300+2`) to get the average pause length per segment. <!--TODO: It's currently not, so ask Lucas about that and amend accordingly.-->
 ```{r}
 mean_pause_len_per_seg_P <- mean(Cdata[ which(Cdata$Task == "P" & Cdata$TG300 >0),]$TG300/(Cdata[ which(Cdata$Task == "P" & Cdata$TG300 >0),]$TB300+1))
 
-mean_pauselen_per_seg_T<-mean(Cdata[ which(Cdata$Task == "T" & Cdata$TG300 >0),]$TG300/(Cdata[ which(Cdata$Task == "T" & Cdata$TG300 >0),]$TB300+1))
+mean_pause_len_per_seg_T<-mean(Cdata[ which(Cdata$Task == "T" & Cdata$TG300 >0),]$TG300/(Cdata[ which(Cdata$Task == "T" & Cdata$TG300 >0),]$TB300+1))
+
+# TODO: tidy/check results
+mean_pause_len_per_seg_T
+mean_pause_len_per_seg_P
 ```
 
 ### Generalized Linear Mixed-Effects model
 
+#### Fixed and Random effects
+##### Fixed effects
+The task `Task` (which can be either Post-editing `P` or Translation `T`) must be a fixed variable, since:
+1. As the predictive variable that we're interested in, these levels have special meaning, and we expect different results for these different variables.
+1. these categories are not sampled from a larger pool of possible categories.   
+
+Sentence Length `scaledLen` must be a fixed variable, since it is continuous. 
+
+##### Random effects
+Segment `SegId` and participant `Part` are both treated as random effects, since both have a number of interchangeable levels, which are sampled from a large pool of possible levels. These effects are crossed rather than nested.
+
+#### Independence of `SegId`/exlusion of `Text`
+<!--
+NOTE: I originally thought that Text and Task were equivalent, but n
+
+Since all of the segments for one task are from the same text, the segments are not strictly independent. However, the texts are are similar (according to the Coh-Metrix text analysis tool) and by the same author, meaning that we do not expect sentences from the two texts to be noticeably different. 
+
+It is not possible to include `Text` in the model, since each `Text` only occurs in one `Task`.`
+-->
+
+#### Model selection pipeline
+##### Maximal design allowed by the experiment
+The maximal model is the one that includes random effects (slopes, intercepts, and correlations between them) for all random effects that could possibly be estimated from the structure of the data.
+
+For our data, this means not including a random effect for `Text`, but including random effects for participants (`Part`) and segment (`SegId`), with respect to the `Task` and the sentence length (`scaledLen`).
+
+### Overdispersion
 ```{r}
-# Notes:
-# ------
-# Segment (SegId) is nested within Text (and therefore Task), SegIds have unique Ids per text. 
-
-# Total number of pauses: TB300+2
-# Task: Post-editing (P) or Translation (T)
-# scale(LenS): scaled sentence length
-
-# (1|Part): Random effects Participant 
-# (1|SegId): Random effects Segment 
-# Segment and Participant are fully crossed, and assuming correlated.
-
-model1 <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (1|SegId), data=Cdata, family="poisson")
-
-# (1|Part): Random effects Participant 
-# (1|SegId): Random effects Segment ,
-# Assuming Segment and Participant correlated.
-# (0+Task|Part):Assuming Participant not correlated with Task.
-# Task + (1 | Part) + (0 + Task | Part) == Task + (Task||Part)
-model1a <- glmer(TB300+2 ~ Task + scale(LenS) + (0+Task|Part) + (1|Part) + (1|SegId), data=Cdata, family="poisson") # fails to converge
-
-model1b <- glmer(TB300+2 ~ Task + scale(LenS) + (1+Task|Part) + (1|SegId), data=Cdata, family="poisson")
-
-model1c <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId), data=Cdata, family="poisson")
-
-model1d <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId), data=Cdata, family="poisson") 
-
-model1e <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (0+Task|SegId) + (0+Task|Part), data=Cdata, family="poisson") #fails to converge
-
-# Total number of pauses: TB300+2
-# Task: Post-editing (P) or Translation (T)
-# scale(LenS): scaled sentence length
-# (1+Task|Part): Task and Participant correlated
-# (1+Task|SegId): Task and segment correlated
-# Segment and Participant are fully crossed, and assuming they are not correlated with Task.
-model1f <- glmer(TB300+2 ~ Task + scale(LenS) + (1+Task|Part) + (1+Task|SegId), data=Cdata, family="poisson")
-
-model1g <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (0+Task|Part) + (1+Task|SegId), data=Cdata, family="poisson") #fails to converge
-
-model1h <- glmer(TB300+2 ~ Task + scale(LenS) + (1|SegId) + (0+Task|SegId) + (1+Task|Part), data=Cdata, family="poisson") #fails to converge
-
-
-anova(model1, model1a)
-anova(model1a, model1b)
-anova(model1a, model1f) #1f superior
-
-summary(model1f) #chosen model - more pauses in translation
-
-r.squaredGLMM(model1f) #R2
-```
-
-```{r}
-
-#Overdispersion check
-overdisp_fun <- function(model) {
+overdisp_fun <- function(model, model_name, alpha=0.05){
     rdf <- df.residual(model)
     rp <- residuals(model,type="pearson")
     Pearson.chisq <- sum(rp^2)
     prat <- Pearson.chisq/rdf
     pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+    if (pval<alpha){
+    print(glue('The model `{model_name}` is overdispersed, p-value: {pval}'))
+    }
+    else {
+      print(glue('The model `{model_name}` is not overdispersed, p-value:{pval}'))
+    }
     c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
 }
 
-overdisp_fun(model1f) #model is overdispersed
+overdispersion <- overdisp_fun(maximal_model_a, 'maximal_model_a') 
+```
 
-Cdata$OLRE <- c(1:nrow(Cdata)) #adding observation-level random effect to absord overdispersion 
+### Model selection
+```{r}
+maximal_model <- glmer(Pauses ~ Task + scaledLen + (1+Task|Part) + (1+Task|Text/SegId)+ (1+scaledLen|Part) + (1+scaledLen|Text/SegId), data=Cdata, family="poisson") 
+isSingular(maximal_model)
+```
 
-model1f.OLRE <- glmer(TB300+2 ~ Task + scale(LenS) + (1+Task|Part) + (1+Task|SegId) + (1|OLRE), data=Cdata, family="poisson")
-isSingular(model1f.OLRE) #model is singular
+This model is singular, so it's necessary to try a simpler model structure.
 
-model1f.OLRE <- glmer(TB300+2 ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (1|OLRE), data=Cdata, family="poisson") #running test on simpler model
-overdisp_fun(model1f.OLRE) #overdispersion corrected
+We first remove the correlation parameter between the random intercept for each segment (`SegId`) and the random slopes of each segment within scaledLen.
+
+```{r}
+maximal_model_a <- glmer(Pauses ~ Task + scaledLen + (Task|Part) + (Task|Text/SegId)+ (scaledLen|Part) + (0+scaledLen|Text/SegId), data=Cdata, family="poisson") 
+isSingular(maximal_model_a)
+```
+This fit is also is singular.
+
+We then remove the correlation parameter between the random intercept for each participant (`Part`) and the random slopes of each participant within scaledLen.
+
+```{r}
+maximal_model_b <- glmer(Pauses ~ Task + scaledLen + (Task|Part) + (Task|Text/SegId)+ (0+scaledLen|Part) + (0+scaledLen|Text/SegId), data=Cdata, family="poisson") 
+
+maximal_model_b <- glmer(Pauses ~ Task + scaledLen + (Task|Part) + (Task|Text/SegId)+ (0+scaledLen|Part) + (0+scaledLen|Text/SegId), data=Cdata, family="poisson", glmerControl(optimizer = 'bobyqa'))
+
+isSingular(maximal_model_b)
+```
+This fit does not converge with the default optimiser. When using the `bobyqa` optimiser, we see that the model converges, but again is singular.
+
+We then remove the correlation parameter between segment and task, then the correlation between participant and task, both of which result in singular fits. 
+
+```{r}
+maximal_model_c <- glmer(Pauses ~ Task + scaledLen + (Task|Part) + (1|Text/SegId) + (0+Task|Text/SegId)+ (0+scaledLen|Part) + (0+scaledLen|Text/SegId), data=Cdata, family="poisson") 
+isSingular(maximal_model_c)
+
+maximal_model_d <- glmer(Pauses ~ Task + scaledLen + (1|Part)+(0+Task|Part) + (1|Text/SegId) + (0+Task|Text/SegId)+ (0+scaledLen|Part) + (0+scaledLen|Text/SegId), data=Cdata, family="poisson") 
+isSingular(maximal_model_d)
+```
+
+At this point it is then necessary to remove random slopes or intercepts.
+
+```{r}
+maximal_model_e <- glmer(Pauses ~ Task + scaledLen + (1|Part)+(0+Task|Part) + (1|Text/SegId) + (0+Task|Text/SegId) + (0+scaledLen|Part), data=Cdata, family="poisson") # remove  (0+scaledLen|Text/SegId) 
+isSingular(maximal_model_e) 
+overdisp_fun(maximal_model_e,"maximal_model_e")
+
+maximal_model_e.OLRE <- glmer(Pauses ~ Task + scaledLen + (1|Part)+(0+Task|Part) + (1|Text/SegId) + (0+Task|Text/SegId) + (0+scaledLen|Part) + (1|OLRE), data=Cdata, family="poisson",glmerControl(optimizer = 'bobyqa')) # remove  (0+scaledLen|Text/SegId) 
+isSingular(maximal_model_e.OLRE) 
+
+maximal_model_f <- glmer(Pauses ~ Task + scaledLen + (1|Part)+(0+Task|Part) + (1|Text/SegId) + (0+scaledLen|Text/SegId)+ (0+scaledLen|Part), data=Cdata, family="poisson",glmerControl(optimizer = 'bobyqa')) # remove (0+Task|Text/SegId), the effect of a given segment on the effectiveness of the treatment
+isSingular(maximal_model_f)
+
+maximal_model_g <- glmer(Pauses ~ Task + scaledLen + (1|Part)+(0+Task|Part) + (1|Text/SegId) + (0+scaledLen|Part), data=Cdata, family="poisson",glmerControl(optimizer = 'bobyqa')) # remove (0+scaledLen|Text/SegId), the effect of a given segment on the effectiveness of the treatment
+isSingular(maximal_model_g)
+
+maximal_model_h <- glmer(Pauses ~ Task + scaledLen + (1|Part)+(0+Task|Part) + (1|SegId) + (0+scaledLen|Part), data=Cdata, family="poisson",glmerControl(optimizer = 'bobyqa')) # remove (0+scaledLen|Text/SegId), the effect of a given segment on the effectiveness of the treatment
+isSingular(maximal_model_h)
+
+maximal_model_i <- glmer(Pauses ~ Task + scaledLen + (1|Part) + (1|SegId) + (0+scaledLen|Part), data=Cdata, family="poisson",glmerControl(optimizer = 'bobyqa')) # remove (0+scaledLen|Text/SegId), the effect of a given segment on the effectiveness of the treatment
+isSingular(maximal_model_i)
+overdisp_fun(maximal_model_i,"maximal_model_i")
+
+maximal_model_i.OLRE <- glmer(Pauses ~ Task + scaledLen + (1|Part) + (1|SegId) + (0+scaledLen|Part) + (1|OLRE), data=Cdata, family="poisson",glmerControl(optimizer = 'bobyqa'))
+isSingular(maximal_model_i.OLRE)
+overdisp_fun(maximal_model_i.OLRE,"maximal_model_i.OLRE")
+```
+
+```{r}
+summary(maximal_model_i.OLRE)
+```
+```{r}
+r.squaredGLMM(maximal_model_i.OLRE)
+```
+
+#### Visualising the chosen model
+A marginal effects plot using the `ggeffect` package shows how the predicted relationship between `Pauses` and scaled sentence length (`scaledLen`).
+
+```{r}
+predict_df1f <- ggpredict(maximal_model_i.OLRE, terms=c("scaledLen","Task"), type='re')
+plot(predict_df1f, add.data=TRUE)
+```
+
+### Normality Check
+However, the residuals are normally distributed according to a Shapiro-Wilk normality test.
+```{r}
+qqnorm(residuals(maximal_model_i.OLRE))
+shapiro <- shapiro.test(residuals(maximal_model_i.OLRE))
+alpha <- 0.05
+if (shapiro$p.value < alpha){
+  print(glue('Residuals are normally distributed according to a Shapiro-Wilk normality test, with p-value {shapiro$p.value}'))
+} else {
+  print(glue('Residuals are cannot be assumed to be normally distributed according to a Shapiro-Wilk normality test, with p-value: {shapiro$p.value}'))
+}
+```
+
+## Previous workings
+
+```{r}
+Cdata$OLRE <- c(1:nrow(Cdata)) #adding observation-level random effect to absorb overdispersion 
+
+maximal_model_a.OLRE <- glmer(Pauses ~ Task + scaledLen + (1|OLRE)+(Task | Part) + (Task | SegId) + 
+    (scaledLen | Part) + (0 + scaledLen | SegId), data=Cdata, family="poisson")
+isSingular(maximal_model_a.OLRE)
+```
+
+```{r}
+model_test.OLRE <- glmer(Pauses ~ Task + scaledLen + (1|Part) + (1|SegId) + (0+Part|scaledLen), data=Cdata, family="poisson") 
+
+model_test.OLRE.overdispersion <- overdisp_fun(model_test.OLRE, 'model_test.OLRE') #overdispersion corrected
+```
+
+```{r}
+model1f.OLRE <- glmer(Pauses ~ Task + scale(LenS) + (1|Part) + (1|SegId) + (1|OLRE), data=Cdata, family="poisson") #running test on simpler model
+model1f.OLRE.overdispersion <- overdisp_fun(model1f.OLRE, 'model1f.OLRE') #overdispersion corrected
 summary(model1f.OLRE) #Task effect still significant; model1f retained
 
 #%CHANGE
@@ -186,6 +375,13 @@ exp(3.6763008+0.6787899) #T
 (exp(3.6763008+0.6787899)-exp(3.6763008))/exp(3.6763008+0.6787899)
 #49.3% fewer pauses for P
 
+```
+
+
+```{r}
+model_basic <- glm(Pauses~scaledLen+Task, data=Cdata)
+predict_basic <- ggpredict(model_basic, terms=c("scaledLen","Task"))
+plot(predict_basic, add.data=TRUE)
 ```
 
 Comparing keystrokes between translation and post-editing
@@ -309,17 +505,22 @@ qqp(resid(model3)) #looks fine
 r.squaredGLMM(model3)
 
 ```
-#STUDY 2
+## Study 2
+Comparing different ways of presenting the texts on screen (sentence- and paragraph-level segmentation).
 
-Comparing cog effort (number of pauses - Green et al. 2013; Toral et al. 2018) between Sentence and Paragraph segmentation
+### Loading Data
+```{r}
+Cdata2 <- read.csv("../data/CREATIVE2.csv") #Concatenated CRITT sg tables
+Cdata2 <- subset(Cdata2, Part != "P06") #excluding participant who split paragraphs
+```
 
 ``` {r}
 
 ###Descriptive Stats
 
-mean((Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$TB300+2)/Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$LenS) #0.3480152 pauses/character
+mean((Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$Pauses)/Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$LenS) #0.3480152 pauses/character
 
-mean((Cdata2[ which(Cdata2$Segmentation == "sentence"),]$TB300+2)/Cdata2[ which(Cdata2$Segmentation == "sentence"),]$LenS) #0.4222854 pauses/character
+mean((Cdata2[ which(Cdata2$Segmentation == "sentence"),]$Pauses)/Cdata2[ which(Cdata2$Segmentation == "sentence"),]$LenS) #0.4222854 pauses/character
 
 mean(Cdata2[ which(Cdata2$Segmentation == "paragraph" & Cdata2$TG300 > 0),]$TG300/(Cdata2[ which(Cdata2$Segmentation == "paragraph" & Cdata2$TG300 > 0),]$TB300+1)) #5.5s per pause 
 
@@ -330,23 +531,23 @@ mean(Cdata2[ which(Cdata2$Segmentation == "sentence" & Cdata2$TG300 > 0),]$TG300
 
 ###glmer model
 
-model4 <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg), data=Cdata2, family="poisson")
+model4 <- glmer(Pauses ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg), data=Cdata2, family="poisson")
 
-model4a <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (0+Segmentation|Part) + (1|Part) + (1|TTseg), data=Cdata2, family="poisson") 
+model4a <- glmer(Pauses ~ Segmentation + scale(LenS) + (0+Segmentation|Part) + (1|Part) + (1|TTseg), data=Cdata2, family="poisson") 
 
-model4b <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1+Segmentation|Part) + (1|TTseg), data=Cdata2, family="poisson")
+model4b <- glmer(Pauses ~ Segmentation + scale(LenS) + (1+Segmentation|Part) + (1|TTseg), data=Cdata2, family="poisson")
 
-model4c <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
+model4c <- glmer(Pauses ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
 
-model4d <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
+model4d <- glmer(Pauses ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
 
-model4e <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg) + (0+Segmentation|Part), data=Cdata2, family="poisson") #fails to converge
+model4e <- glmer(Pauses ~ Segmentation + scale(LenS) + (1|Part) + (1|TTseg) + (0+Segmentation|TTseg) + (0+Segmentation|Part), data=Cdata2, family="poisson") #fails to converge
 
-model4f <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1+Segmentation|Part) + (1+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
+model4f <- glmer(Pauses ~ Segmentation + scale(LenS) + (1+Segmentation|Part) + (1+Segmentation|TTseg), data=Cdata2, family="poisson") #fails to converge
 
-model4g <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|Part) + (0+Segmentation|Part) + (1+Segmentation|TTseg), data=Cdata2, family="poisson") 
+model4g <- glmer(Pauses ~ Segmentation + scale(LenS) + (1|Part) + (0+Segmentation|Part) + (1+Segmentation|TTseg), data=Cdata2, family="poisson") 
 
-model4h <- glmer(TB300+2 ~ Segmentation + scale(LenS) + (1|TTseg) + (0+Segmentation|TTseg) + (1+Segmentation|Part), data=Cdata2, family="poisson") #fails to converge
+model4h <- glmer(Pauses ~ Segmentation + scale(LenS) + (1|TTseg) + (0+Segmentation|TTseg) + (1+Segmentation|Part), data=Cdata2, family="poisson") #fails to converge
 
 
 anova(model4, model4a)
@@ -360,11 +561,11 @@ summary(model4a) #more pauses in sentence condition
 Cdata2$Text = as.factor(Cdata2$Text)
 contrasts(Cdata2$Text) = contr.sum(2)
 
-model9 <- glmer(TB300+2 ~ Segmentation + scale(LenS) + Text + (1|Part), data=Cdata2, family="poisson")
+model9 <- glmer(Pauses ~ Segmentation + scale(LenS) + Text + (1|Part), data=Cdata2, family="poisson")
 
-model9a <- glmer(TB300+2 ~ Segmentation + scale(LenS)  + Text + (0+Segmentation|Part) + (1|Part), data=Cdata2, family="poisson") #fails to converge
+model9a <- glmer(Pauses ~ Segmentation + scale(LenS)  + Text + (0+Segmentation|Part) + (1|Part), data=Cdata2, family="poisson") #fails to converge
 
-model9b <- glmer(TB300+2 ~ Segmentation + scale(LenS) + Text + (1+Segmentation|Part), data=Cdata2, family="poisson")
+model9b <- glmer(Pauses ~ Segmentation + scale(LenS) + Text + (1+Segmentation|Part), data=Cdata2, family="poisson")
 
 anova(model9, model9b) #model 9b superior
 
@@ -377,7 +578,7 @@ r.squaredGLMM(model9b) #R2
 overdisp_fun(model9b) #model overdispersed
 Cdata2$OLRE <- c(1:nrow(Cdata2)) #adding observation-level random effect to absord overdispersion 
 
-model9b.OLRE <- glmer(TB300+2 ~ Segmentation + scale(LenS) + Text + (1+Segmentation|Part) + (1|OLRE), data=Cdata2, family="poisson")
+model9b.OLRE <- glmer(Pauses ~ Segmentation + scale(LenS) + Text + (1+Segmentation|Part) + (1|OLRE), data=Cdata2, family="poisson")
 isSingular(model9b.OLRE) #FALSE - not singular
 
 summary(model9b.OLRE) #Segmentation still significant 
