@@ -1,7 +1,7 @@
-# Translating science fiction in a CAT tool: post-editing effort and text segmentation 
+# Translating science fiction in a CAT tool: machine translation and text segmentation 
 
 ## Intro
-This is the GitHub repository which contains the analysis for the two studies which were part of the Translating Science Fiction research project. These studies examined the use of neural machine translation (NMT) as a source of suggestions for translating science fiction short stories in a commercial computer aided translation (CAT) tool, Trados Studio 2019.
+This is the GitHub repository which contains the analysis for the two studies which were part of the Translating Science Fiction paper. These studies examined the use of neural machine translation (NMT) as a source of suggestions for translating science fiction short stories in a commercial computer aided translation (CAT) tool, Trados Studio 2019.
 
 The first study compares NMT post-editing with unaided translation in terms of the levels of effort required by the tasks, while the second examines two ways of presenting the texts for post-editing, namely by segmenting them into paragraphs or sentences. 
 
@@ -11,10 +11,16 @@ This analysis accompanies a publication, which you can read [here](link-here-whe
 Contributions are shown using [emojis](https://allcontributors.org/docs/en/emoji-key) from the [all-contributors guidelines](https://github.com/all-contributors/all-contributors).
 
 [Lucas Nunes Viera](mailto:): 🔍🤔💻🖋💬🔣
-<!-- Lucas, please add others-->
+
+[Michael Carl](mailto:): 🔣🤔🖋
+
+[Roy Youdale](mailto:): 🤔🖋💬
+
+[Xiaochun Zhang](mailto:): 🔍🤔🖋💬
+
 [Natalie Thurlby](mailto:natalie.thurlby@bristol.ac.uk):🚧🚇💻🤔💬
 
-This work was funded by <!--TODO: @Lucas, please fill in-->.
+This work was funded by the Creative Multilingualism Open World Research Initiative of the Arts and Humanities Research Council and by the Economic and Social Research Council (Grant ES/S014446/1).
 
 ## Reproducing this analysis
 
