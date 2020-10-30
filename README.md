@@ -26,8 +26,8 @@ This work was funded by the Creative Multilingualism Open World Research Initiat
 
 ### Directory Structure
 The data and analysis script which you will need to reproduce the analysis can be found in:
-`data/CREATIVE.csv` - data for study 1.
-`data/CREATIVE2.csv` - data for study 2.
+`data/creative_1.csv` - data for study 1.
+`data/creative_2.csv` - data for study 2.
 `scripts/creative.rmd` - RMarkdown notebook for both analyses.
 
 ### On your machine
