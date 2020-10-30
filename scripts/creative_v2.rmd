@@ -1,0 +1,330 @@
+---
+title: "creative_article"
+output: html_document
+---
+# Analysis for Translating science fiction in a CAT tool: machine translation and segmentation settings
+
+## Loading Packages
+```{r message=FALSE, warning=FALSE}
+library(reshape2)
+library(generics)
+library(doBy)
+library(pracma)
+library(ggplot2)
+library(gridExtra)
+library(car)
+library(MuMIn)
+library(testit)
+library(tidyverse)
+library(glue)
+library(ggeffects)
+```
+
+## Study 1
+Comparing T (translation) and P (post-editing)
+
+### Load data 
+Reads in and cleans data from the concatenated CRITT SG tables.
+```{r}
+Cdata <- read.csv("../data/creative_1.csv") #Concatenated CRITT SG tables
+
+# Excluding errors (e.g. participants who forgot to use Pinyin) + cases where there's evidence of MT use in translation condition
+Cdata <- subset(Cdata, Part != "P01" & Part != "P04" & Part != "P09" & Part != "P10" & Part != "P12" & Part != "P14" & Part != "P11") 
+
+#Fix data type for categorical columns:
+Cdata$Part <- as.factor(Cdata$Part)
+Cdata$Task <- as.factor(Cdata$Task)
+
+obs_1 <-nrow(Cdata) #156
+print(glue("Study 1 data has {obs_1} observations."))
+
+unedited_segs_1 <-nrow(Cdata[ which(Cdata$FDur == 0),]) 
+print(glue("MT output segments remained unedited in Study 1 {unedited_segs_1} times."))
+
+```
+### Renaming variables
+#### Pauses (cognitive effort)
+The `TB300` variable represents the number of typing bursts interspersed by 300-millisecond intervals. The number of typing bursts is largely equivalent to the number of pauses except for a probable initial and final pause. We therefore calculate the total number of pauses by adding 2 to the `TB300` variable.
+```{r}
+Cdata$Pauses <- Cdata$TB300 + 2
+```
+
+#### Nkeys (number of insertions and deletions -- technical effort )
+The `Ins` and `Del` variable represent the number of insertions and deletions as recorded by the Qualitivity plugin. We add up these two variables as a proxy for the number of keystrokes, which represents technical effort.
+
+```{r}
+Cdata$Nkeys <- Cdata$Ins + Cdata$Del
+```
+
+#### FDur_s (number of seconds between first and last keystroke excluding pauses of 200 seconds or more -- temporal effort )
+We use variable `FDur` as our measure of temporal effort. This variable counts the number of milliseconds between the first and last keystroke in each segment while excluding pauses (breaks) longer than 200 seconds. We convert this variable from milliseconds `FDur` to seconds `FDur_s`.
+Where a segment is not edited, and therefore has no keystrokes, the value of `FDur` = 0. We exclude cases where `FDur` = 0 in calculations involving the `FDur` variable.
+
+```{r}
+Cdata$FDur_s <- Cdata$FDur/1000
+```
+### Correlations between variables used as proxies for cognitive (Pauses), temporal (FDur_s) and technical effort (NKeys)
+
+```{r}
+###Correlations
+
+cor.test(Cdata$Pauses,Cdata$Nkeys) #Pauses-Keystrokes 0.9302716
+cor.test(Cdata[ which(Cdata$FDur_s >0),]$FDur_s,Cdata[ which(Cdata$FDur_s >0),]$Nkeys) #Time-Keysrokes 0.8125572 
+cor.test(Cdata[ which(Cdata$FDur_s >0),]$FDur_s,Cdata[ which(Cdata$FDur_s >0),]$Pauses) #Time-Pauses 0.8900539
+cor.test(Cdata[ which(Cdata$FDur_s >0),]$FDur_s,Cdata[ which(Cdata$FDur_s >0),]$Nedit) #Time-Visits 0.5933315 
+cor.test(Cdata$Nkeys,Cdata$Nedit)#Keystrokes-Visits 0.5420038 
+cor.test(Cdata$Pauses,Cdata$Nedit)#Pauses-Visits 0.4764527 
+
+```
+Pauses and NKeys are very highly correlated (r = 0.93). For further analysis, we focus on pauses.
+
+### Exploratory Data Analysis
+#### NKeys
+```{r}
+cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") #colour-blind friendly from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette 
+ggplot(Cdata, aes(x=Task,y=Nkeys/LenS,color=Task))+geom_boxplot()+geom_jitter()+scale_colour_manual(values=cbPalette) + ylab("Keystrokes per source character")
+```
+
+```{r}
+mean_keys_per_char_P <- mean((Cdata[ which(Cdata$Task == "P"),]$Nkeys)/Cdata[ which(Cdata$Task == "P"),]$LenS) #P: 2.25397724051884 keys/character
+
+mean_keys_per_char_T <- mean((Cdata[ which(Cdata$Task == "T"),]$Nkeys)/Cdata[ which(Cdata$Task == "T"),]$LenS) #T: 3.71381669728488 keys/character
+
+sd_keys_per_char_P <- sd((Cdata[ which(Cdata$Task == "P"),]$Nkeys)/Cdata[ which(Cdata$Task == "P"),]$LenS) #P: 1.34950220614149  keys/character
+
+sd_keys_per_char_T <- sd((Cdata[ which(Cdata$Task == "T"),]$Nkeys)/Cdata[ which(Cdata$Task == "T"),]$LenS) #T: 1.75024294114716 keys/character
+
+mean_keys_per_char_P_sqrt <- mean(sqrt((Cdata[ which(Cdata$Task == "P"),]$Nkeys)/Cdata[ which(Cdata$Task == "P"),]$LenS)) #P: 2.25397724051884 keys/character
+
+mean_keys_per_char_T_sqrt <- mean(sqrt((Cdata[ which(Cdata$Task == "T"),]$Nkeys)/Cdata[ which(Cdata$Task == "T"),]$LenS)) #T: 3.71381669728488 keys/character
+
+reduced_pc <- 100*(1-round(mean_keys_per_char_P/mean_keys_per_char_T, digits=3))
+
+reduced_pc_sqrt <- 100*(1-round(mean_keys_per_char_P_sqrt/mean_keys_per_char_T_sqrt, digits=3))
+
+print(glue("On average there are more keystrokes per character in translation ({mean_keys_per_char_T}, SD = {sd_keys_per_char_T}) than in post-editing ({mean_keys_per_char_P}, SD = {sd_keys_per_char_P}). This is a {reduced_pc}% reduction for the post-editing condition. Based on square-root-transformed values, this difference changes to {reduced_pc_sqrt}%.")) 
+
+```
+
+```{r}
+ggplot(Cdata, aes(x=LenS, y=Nkeys,color=Task,shape=Part)) + geom_point() +geom_smooth(aes(group=Task),formula='y~x',method='loess',size=0.5, alpha=0.2)+scale_colour_manual(values=cbPalette) + xlab("Source segment length in characters") + ylab("Keystrokes")
+```
+
+```{r}
+ggplot(Cdata, aes(x=Part,y=Nkeys/LenS,fill=Task)) + geom_boxplot() + geom_jitter(alpha=0.25) + scale_fill_manual(values=cbPalette) + ylab("Keystrokes per source character") + xlab("Participants")
+
+```
+The median number of pauses per character is lower for 5 out of 6 participants in the post-editing (`P`) task.
+
+#### Checking if results are similar for Pauses
+
+```{r}
+
+ggplot(Cdata, aes(x=Part,y=Pauses/LenS,fill=Task)) + geom_boxplot() + geom_jitter(alpha=0.25) + scale_fill_manual(values=cbPalette) + ylab("Pauses per source character") + xlab("Participants")
+
+```
+There were more keystrokes for translation for all translators.
+
+#### FDur_s Seconds
+
+```{r}
+cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") #colour-blind friendly from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette 
+ggplot(Cdata[ which(Cdata$FDur_s >0),], aes(x=Task,y=log(FDur_s/LenS),color=Task))+geom_boxplot()+geom_jitter()+scale_colour_manual(values=cbPalette) + ylab("Seconds per source character (log)")
+```
+The median number of seconds per character spent on the task is slightly higher for translation, but the difference is much less pronounced for seconds than it is for keystrokes (above).
+
+```{r}
+mean_seconds_per_char_P <- mean((Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "P"),]$FDur_s)/Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "P"),]$LenS)
+
+mean_seconds_per_char_T <- mean((Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "T"),]$FDur_s)/Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "T"),]$LenS) 
+
+reduced_pc <- 100*(1-round(mean_seconds_per_char_P/mean_seconds_per_char_T, digits=3))
+
+sd_seconds_per_char_P <- sd((Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "P"),]$FDur_s)/Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "P"),]$LenS)
+
+sd_seconds_per_char_T <- sd((Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "T"),]$FDur_s)/Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "T"),]$LenS)
+
+mean_seconds_per_char_P_log <- mean(log((Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "P"),]$FDur_s)/Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "P"),]$LenS))
+
+mean_seconds_per_char_T_log <- mean(log((Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "T"),]$FDur_s)/Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "T"),]$LenS))
+
+reduced_pc_log <- 100*(1-round(mean_seconds_per_char_T_log/mean_seconds_per_char_P_log, digits=3))
+
+print(glue("On average there are more seconds per character in translation ({mean_seconds_per_char_T}, SD = {sd_seconds_per_char_T}) than in post-editing ({mean_seconds_per_char_P}, SD = {sd_seconds_per_char_P}). This is a {reduced_pc}% reduction for the post-editing condition. However, based on the logs, the relationship inverts with translation requiring {reduced_pc_log}% fewer seconds per character than post-editing.")) 
+
+
+```
+
+We plot seconds (`FDur_s`) as a function of source-segment length (in characters, `LenS`) and draw loess regression lines for post-editing (`P`) and translation (`T`) with 95% confidence intervals (shaded areas). 
+```{r}
+ggplot(Cdata[ which(Cdata$FDur_s >0),], aes(x=LenS, y=log(FDur_s),color=Task,shape=Part)) + geom_point() +geom_smooth(aes(group=Task),formula='y~x',method='loess',size=0.5, alpha=0.2)+scale_colour_manual(values=cbPalette) + ylab("Seconds (log)") + xlab("Source segment length in characters")
+
+```
+Post-editing was faster than translation for shorter segments though slower for longer sentences.
+
+```{r}
+ggplot(Cdata[ which(Cdata$FDur_s >0),], aes(x=Part,y=log(FDur_s/LenS),fill=Task)) + geom_boxplot() + geom_jitter(alpha=0.25) + scale_fill_manual(values=cbPalette) + ylab("Seconds per source character (log)") + xlab("Participants")
+```
+Post-editing (`P`) was faster only for 2 out of 6 participants. Post-editing required lower effort only in terms of pauses and keystrokes. 
+
+## Study 2
+Comparing different ways of presenting the texts on screen (sentence- and paragraph-level segmentation).
+
+### Loading Data
+```{r}
+Cdata2 <- read.csv("../data/creative_2.csv") #Concatenated CRITT sg tables
+Cdata2 <- subset(Cdata2, Part != "P06") #excluding participant who split paragraphs
+
+obs_2 <-nrow(Cdata2) 
+print(glue("Study 2 data has {obs_2} observations."))
+
+unedited_segs_2 <-nrow(Cdata2[ which(Cdata2$FDur == 0),])
+unedited_segs_2_sent <-nrow(Cdata2[ which(Cdata2$FDur == 0 & Cdata2$Segmentation == "sentence"),])
+unedited_segs_2_para <-nrow(Cdata2[ which(Cdata2$FDur == 0 & Cdata2$Segmentation == "paragraph"),])
+
+print(glue("MT output segments remained unedited in Study 2 {unedited_segs_2} times, of which {unedited_segs_2_sent} were in the sentence condition and {unedited_segs_2_para} were in the paragraph condition ."))
+```
+### Renaming variables
+#### Pauses (cognitive effort)
+```{r}
+Cdata2$Pauses <- Cdata2$TB300 + 2
+```
+
+#### Nkeys (number of insertions and deletions -- technical effort)
+```{r}
+Cdata2$Nkeys <- Cdata2$Ins + Cdata2$Del
+```
+
+#### FDur_s (number of seconds between first and last keystroke excluding pauses of 200 seconds or more -- temporal effort)
+
+```{r}
+Cdata2$FDur_s <- Cdata2$FDur/1000
+```
+### Correlations between variables used as proxies for cognitive (Pauses), temporal(FDur) and technical effort (NKeys)
+
+```{r}
+###Correlations
+
+cor.test(Cdata2$Pauses,Cdata2$Nkeys) #Pauses-Keystrokes 0.9590925
+cor.test(Cdata2[ which(Cdata2$FDur_s >0),]$FDur_s,Cdata2[ which(Cdata2$FDur_s >0),]$Nkeys) #Time-Keysrokes 0.8650908  
+cor.test(Cdata2[ which(Cdata2$FDur_s >0),]$FDur_s,Cdata2[ which(Cdata2$FDur_s >0),]$Pauses) #Time-Pauses 0.9113697 
+cor.test(Cdata2[ which(Cdata2$FDur_s >0),]$FDur_s,Cdata2[ which(Cdata2$FDur_s >0),]$Nedit) #Time-Visits 0.4537433 
+cor.test(Cdata2$Nkeys,Cdata2$Nedit) #Keystrokes-Visits 0.4353859 
+cor.test(Cdata2$Pauses,Cdata2$Nedit) #Pauses-Visits 0.3944248
+
+```
+There are very high correlations between pauses and keystrokes and between seconds and pauses. We therefore focus on seconds and keystrokes for further analysis
+
+
+#### FDur_s Seconds
+
+```{r}
+cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") #colour-blind friendly from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette 
+ggplot(Cdata2[ which(Cdata2$FDur_s >0),], aes(x=Segmentation,y=log(FDur_s/LenS),color=Segmentation))+geom_boxplot()+geom_jitter()+scale_colour_manual(values=cbPalette) + ylab("Seconds per source character (log)")
+```
+The median number of seconds per character was only marginally higher when the texts were segmented into sentences.
+
+```{r}
+mean_seconds_per_char_para <- mean((Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "paragraph"),]$FDur_s)/Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "paragraph"),]$LenS)
+
+mean_seconds_per_char_sent <- mean((Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "sentence"),]$FDur_s)/Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "sentence"),]$LenS) 
+
+sd_seconds_per_char_para <- sd((Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "paragraph"),]$FDur_s)/Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "paragraph"),]$LenS)
+
+sd_seconds_per_char_sent <- sd((Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "sentence"),]$FDur_s)/Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "sentence"),]$LenS) 
+
+mean_seconds_per_char_para_log <- mean(log((Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "paragraph"),]$FDur_s)/Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "paragraph"),]$LenS))
+
+mean_seconds_per_char_sent_log <- mean(log((Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "sentence"),]$FDur_s)/Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "sentence"),]$LenS))
+
+reduced_pc <- 100*(1-round(mean_seconds_per_char_para/mean_seconds_per_char_sent, digits=3))
+
+reduced_pc_log <- 100*(1-round(mean_seconds_per_char_para_log/mean_seconds_per_char_sent_log, digits=3))
+
+print(glue("On average there are more seconds per character for sentence segmentation ({mean_seconds_per_char_sent}, SD = {sd_seconds_per_char_sent}) than for paragraph segmentation ({mean_seconds_per_char_para}, SD = {sd_seconds_per_char_para}). This is a {reduced_pc}% reduction for the paragraph condition. Based on log-transformed values, this reduction changes slightly to {reduced_pc_log}%")) 
+
+
+```
+```{r}
+ggplot(Cdata2[ which(Cdata2$FDur_s >0),], aes(x=Part,y=log(FDur_s/LenS),fill=Segmentation)) + geom_boxplot() + geom_jitter(alpha=0.25) + scale_fill_manual(values=cbPalette) + ylab("Seconds per source character (log)") + xlab("Participants")
+```
+The text was faster to translate/post-edit when segmented in sentences for five out of ten participants. Translators are split in half.
+#### NKeys
+
+```{r}
+cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") #colour-blind friendly from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette 
+ggplot(Cdata2, aes(x=Segmentation,y=sqrt(Nkeys/LenS),color=Segmentation))+geom_boxplot()+geom_jitter()+scale_colour_manual(values=cbPalette) + ylab("Keystroke count per source character (sqrt)")
+```
+The number of keystrokes per character is slightly higher when the texts are segmented into sentences.
+
+```{r}
+mean_Nkeys_per_char_para <- mean((Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$Nkeys)/Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$LenS)
+
+mean_Nkeys_per_char_sent <- mean((Cdata2[ which(Cdata2$Segmentation == "sentence"),]$Nkeys)/Cdata2[ which(Cdata2$Segmentation == "sentence"),]$LenS) 
+
+sd_Nkeys_per_char_para <- sd((Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$Nkeys)/Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$LenS)
+
+sd_Nkeys_per_char_sent <- sd((Cdata2[ which(Cdata2$Segmentation == "sentence"),]$Nkeys)/Cdata2[ which(Cdata2$Segmentation == "sentence"),]$LenS) 
+
+mean_Nkeys_per_char_para_sqrt <- mean(sqrt((Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$Nkeys)/Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$LenS))
+
+mean_Nkeys_per_char_sent_sqrt <- mean(sqrt((Cdata2[ which(Cdata2$Segmentation == "sentence"),]$Nkeys)/Cdata2[ which(Cdata2$Segmentation == "sentence"),]$LenS))
+
+reduced_pc <- 100*(1-round(mean_Nkeys_per_char_para/mean_Nkeys_per_char_sent, digits=3))
+
+reduced_pc_sqrt <- 100*(1-round(mean_Nkeys_per_char_para_sqrt/mean_Nkeys_per_char_sent_sqrt, digits=3))
+
+print(glue("On average there are more keystrokes per character for sentence segmentation ({mean_Nkeys_per_char_sent}, SD = {sd_Nkeys_per_char_sent}) than for paragraph segmentation ({mean_Nkeys_per_char_para}, SD = {sd_Nkeys_per_char_para}). This is a {reduced_pc}% reduction for the paragraph condition. Based on suqare-root-transformed values, this difference changes to {reduced_pc_sqrt}% ")) 
+
+```
+The difference between sentence and paragraph segmentation is more pronounced in terms of keystrokes than in terms of translation time. 
+
+```{r}
+ggplot(Cdata2, aes(x=Part,y=sqrt(Nkeys/LenS),fill=Segmentation)) + geom_boxplot() + geom_jitter(alpha=0.25) + scale_fill_manual(values=cbPalette) + ylab("Keystroke count per source character (sqrt)") + xlab("Participants")
+```
+For six out of ten translators, there are more keystrokes per character when the texts are segmented into sentences.
+
+#### Checking results for Pauses
+```{r}
+ggplot(Cdata2, aes(x=Part,y=log(Pauses/LenS),fill=Segmentation)) + geom_boxplot() + geom_jitter(alpha=0.25) + scale_fill_manual(values=cbPalette) + ylab("Pauses per source character (log)") + xlab("Participants")
+```
+For five out of ten translators, there are more pauses per character when the texts are segmented into sentences.
+
+#### Number of edits
+We use the `Nedit` variable (number of times a segment is edited) to compare sentence and paragraph segmentation in relation to how often trasnlators returned to the segments (paragraphs or sentences, depending on the task condition) to edit them further. We plot the number of edits (`Nedit`) per source character (`LenS`) (y-axis) as a function of the number of seconds (`FDur_s`) per source character (x-axis). We take the logs of both of these variables to facilitate visualisation.  
+
+```{r}
+
+ggplot(Cdata2[ which(Cdata2$FDur_s >0),], aes(x=log(FDur_s/LenS), y=log(Nedit/LenS),color=Segmentation)) + geom_point() +geom_smooth(aes(group=Segmentation),formula='y~x',method='lm',size=0.5, alpha=0.2)+scale_colour_manual(values=cbPalette) + ylab("Number of editing visits per source character (log)") + xlab("Seconds per source character (log)")
+```
+Sentences with more seconds per character are also associated with more visits. This is also the case for paragraphs, but translators returned less often to paragraphs than to sentences. 
+
+## Reproducibility
+
+### Testing reproducibility
+The following code snippets check that the input data, and results are the same as ours to 7 significant figures.
+
+```{r}
+sig_fig <- 14
+
+# Check descriptive stats:
+m_ks_P <- 2.25397724051884
+testit::assert(glue("Mean keystrokes/character for post-editing is {m_ks_P}"), round(mean_keys_per_char_P, digits=sig_fig) == m_ks_P)
+
+m_ks_T <- 3.71381669728488
+testit::assert(glue("Mean keystrokes/character for translation is {m_ks_T}"), round(mean_keys_per_char_T, digits=sig_fig) == m_ks_T)
+```
+
+### Snapshot R library environment
+```{r}
+renv::clean()
+renv::snapshot()
+```
+
+### Software citations
+```{r}
+knitr::write_bib(c(.packages(), "bookdown"), "../software-citations.bib")
+```
+
+
+
