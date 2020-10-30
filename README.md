@@ -12,7 +12,7 @@ Contributions are shown using [emojis](https://allcontributors.org/docs/en/emoji
 
 [Lucas Nunes Viera](mailto:): 🔍🤔💻🖋💬🔣
 
-[Michael Carl](mailto:): 🔣🤔🖋
+[Michael Carl](mailto:): 🔣🤔🖋💬
 
 [Roy Youdale](mailto:): 🤔🖋💬
 
