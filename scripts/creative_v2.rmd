@@ -98,18 +98,12 @@ median_keys_per_char_P <- median(Cdata[ which(Cdata$Task == "P"),]$Nkeys/Cdata[ 
 
 median_keys_per_char_T <- median(Cdata[ which(Cdata$Task == "T"),]$Nkeys/Cdata[ which(Cdata$Task == "T"),]$LenS) #T: 3.71381669728488 keys/character
 
-mean_keys_per_char_P_sqrt <- mean(sqrt(Cdata[ which(Cdata$Task == "P"),]$Nkeys/Cdata[ which(Cdata$Task == "P"),]$LenS)) 
-
-mean_keys_per_char_T_sqrt <- mean(sqrt(Cdata[ which(Cdata$Task == "T"),]$Nkeys/Cdata[ which(Cdata$Task == "T"),]$LenS)) 
-
 
 reduced_pc <- 100*(1-round(mean_keys_per_char_P/mean_keys_per_char_T, digits=3))
 
 reduced_pc_median <- 100*(1-round(median_keys_per_char_P/median_keys_per_char_T, digits=3))
 
-reduced_pc_sqrt <- 100*(1-round((mean_keys_per_char_P_sqrt^2)/(mean_keys_per_char_T_sqrt^2), digits=3))
-
-print(glue("On average there are more keystrokes per character in translation ({mean_keys_per_char_T}, SD = {sd_keys_per_char_T}) than in post-editing ({mean_keys_per_char_P}, SD = {sd_keys_per_char_P}). This is a {reduced_pc}% reduction for the post-editing condition. Based on the medians, this difference changes to {reduced_pc_median}%. Based on suqare-root-transformed values, the difference is {reduced_pc_sqrt}%")) 
+print(glue("On average there are more keystrokes per character in translation ({mean_keys_per_char_T}, SD = {sd_keys_per_char_T}) than in post-editing ({mean_keys_per_char_P}, SD = {sd_keys_per_char_P}). This is a {reduced_pc}% reduction for the post-editing condition. Based on the medians, this difference changes to {reduced_pc_median}%.")) 
 
 ```
 
@@ -153,17 +147,11 @@ median_seconds_per_char_P <- median(Cdata[ which(Cdata$FDur_s >0 & Cdata$Task ==
 
 median_seconds_per_char_T <- median(Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "T"),]$FDur_s/Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "T"),]$LenS)
 
-mean_seconds_per_char_P_log <- mean(log(Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "P"),]$FDur_s/Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "P"),]$LenS))
-
-mean_seconds_per_char_T_log <- mean(log(Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "T"),]$FDur_s/Cdata[ which(Cdata$FDur_s >0 & Cdata$Task == "T"),]$LenS)) 
-
 reduced_pc <- 100*(1-round(mean_seconds_per_char_P/mean_seconds_per_char_T, digits=3))
 
 reduced_pc_median <- 100*(1-round(median_seconds_per_char_P/median_seconds_per_char_T, digits=3))
 
-reduced_pc_logs <- 100*(1-round(exp(mean_seconds_per_char_T_log)/exp(mean_seconds_per_char_P_log), digits=3))
-
-print(glue("On average there are more seconds per character in translation ({mean_seconds_per_char_T}, SD = {sd_seconds_per_char_T}) than in post-editing ({mean_seconds_per_char_P}, SD = {sd_seconds_per_char_P}). This is a {reduced_pc}% reduction for the post-editing condition. Based on the medians, the post-editing reduction changes to {reduced_pc_median}%. Based on the means of log-transformed values, the difference flips, with a {reduced_pc_logs}% reduction for the unaided condition.")) 
+print(glue("On average there are more seconds per character in translation ({mean_seconds_per_char_T}, SD = {sd_seconds_per_char_T}) than in post-editing ({mean_seconds_per_char_P}, SD = {sd_seconds_per_char_P}). This is a {reduced_pc}% reduction for the post-editing condition. Based on the medians, the post-editing reduction changes to {reduced_pc_median}%.")) 
 
 
 ```
@@ -250,19 +238,11 @@ median_seconds_per_char_para <- median((Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$
 
 median_seconds_per_char_sent <- median((Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "sentence"),]$FDur_s)/Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "sentence"),]$LenS)
 
-mean_seconds_per_char_para_log <- mean(log((Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "paragraph"),]$FDur_s)/Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "paragraph"),]$LenS))
-
-mean_seconds_per_char_sent_log <- mean(log((Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "sentence"),]$FDur_s)/Cdata2[ which(Cdata2$FDur_s >0 & Cdata2$Segmentation == "sentence"),]$LenS)) 
-
 reduced_pc <- 100*(1-round(mean_seconds_per_char_para/mean_seconds_per_char_sent, digits=3))
 
 reduced_pc_median <- 100*(1-round(median_seconds_per_char_para/median_seconds_per_char_sent, digits=3))
 
-reduced_pc_logs <- 100*(1-round(exp(mean_seconds_per_char_para_log)/exp(mean_seconds_per_char_sent_log), digits=3))
-
-reduced_logs <- round(100*((exp(mean_seconds_per_char_sent_log)-exp(mean_seconds_per_char_para_log))/exp(mean_seconds_per_char_sent_log)), digits=1)
-
-print(glue("On average there are more seconds per character for sentence segmentation ({mean_seconds_per_char_sent}, SD = {sd_seconds_per_char_sent}) than for paragraph segmentation ({mean_seconds_per_char_para}, SD = {sd_seconds_per_char_para}). This is a {reduced_pc}% reduction for the paragraph condition. Based on the medians, this difference changes to {reduced_pc_median}%. Based on the logs, it changes to {reduced_logs}%")) 
+print(glue("On average there are more seconds per character for sentence segmentation ({mean_seconds_per_char_sent}, SD = {sd_seconds_per_char_sent}) than for paragraph segmentation ({mean_seconds_per_char_para}, SD = {sd_seconds_per_char_para}). This is a {reduced_pc}% reduction for the paragraph condition. Based on the medians, this difference changes to {reduced_pc_median}%.")) 
 
 ```
 ```{r}
@@ -290,17 +270,12 @@ median_Nkeys_per_char_para <- median((Cdata2[ which(Cdata2$Segmentation == "para
 
 median_Nkeys_per_char_sent <- median((Cdata2[ which(Cdata2$Segmentation == "sentence"),]$Nkeys)/Cdata2[ which(Cdata2$Segmentation == "sentence"),]$LenS)
 
-mean_Nkeys_per_char_para_sqrt <- mean(sqrt(Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$Nkeys/Cdata2[ which(Cdata2$Segmentation == "paragraph"),]$LenS))
-
-mean_Nkeys_per_char_sent_sqrt <- mean(sqrt(Cdata2[ which(Cdata2$Segmentation == "sentence"),]$Nkeys/Cdata2[ which(Cdata2$Segmentation == "sentence"),]$LenS)) 
 
 reduced_pc <- 100*(1-round(mean_Nkeys_per_char_para/mean_Nkeys_per_char_sent, digits=3))
 
 reduced_pc_median <- 100*(1-round(median_Nkeys_per_char_para/median_Nkeys_per_char_sent, digits=3))
 
-reduced_pc_sqrt <- 100*(1-round((mean_Nkeys_per_char_para_sqrt^2)/(mean_Nkeys_per_char_sent_sqrt^2), digits=3))
-
-print(glue("On average there are more keystrokes per character for sentence segmentation ({mean_Nkeys_per_char_sent}, SD = {sd_Nkeys_per_char_sent}) than for paragraph segmentation ({mean_Nkeys_per_char_para}, SD = {sd_Nkeys_per_char_para}). This is a {reduced_pc}% reduction for the paragraph condition. Based on the medians, this difference changes to {reduced_pc_median}%. Based on the means of square-root-transformed values, it changes to {reduced_pc_sqrt}%")) 
+print(glue("On average there are more keystrokes per character for sentence segmentation ({mean_Nkeys_per_char_sent}, SD = {sd_Nkeys_per_char_sent}) than for paragraph segmentation ({mean_Nkeys_per_char_para}, SD = {sd_Nkeys_per_char_para}). This is a {reduced_pc}% reduction for the paragraph condition. Based on the medians, this difference changes to {reduced_pc_median}%.")) 
 
 ```
 The difference between sentence and paragraph segmentation is more pronounced in terms of keystrokes than in terms of translation time. 
